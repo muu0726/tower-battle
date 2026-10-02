@@ -1,13 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  createPieceBody,
-  getPieceMeta,
-  isSimplePolygon,
-  polygonArea,
-  polygonBounds,
-  tracePiece,
-  type ImageLike,
-} from "./contourTracer";
+import { isSimplePolygon, tracePiece, type ImageLike } from "./contourTracer";
 
 const SIZE = 256;
 
@@ -116,56 +108,5 @@ describe("tracePiece", () => {
     expect(b.minY).toBe(0);
     expect(b.maxX).toBe(100);
     expect(b.maxY).toBe(100);
-  });
-});
-
-describe("createPieceBody", () => {
-  const baseOpts = { scale: 0.5, ownerIndex: 2, color: "#10B981", spriteKey: "t" };
-
-  it("凹形状 (L 字) は凸分解され compound body になる", () => {
-    const img = blank();
-    paint(img, (x, y) => (x >= 40 && x < 216 && y >= 40 && y < 100) || (x >= 40 && x < 100 && y >= 40 && y < 216));
-    const piece = tracePiece(img)!;
-    expect(polygonArea(piece.polygons[0])).not.toBe(0);
-
-    const body = createPieceBody(piece.polygons, { ...baseOpts, x: 300, y: 200 })!;
-    expect(body).not.toBeNull();
-    expect(body.parts.length).toBeGreaterThan(2); // parts[0] は親自身
-    expect(body.position.x).toBeCloseTo(300);
-    expect(body.position.y).toBeCloseTo(200);
-  });
-
-  it("outline + spriteOffset がボディの実際の形と一致する", () => {
-    const img = blank();
-    paint(img, (x, y) => (x >= 40 && x < 216 && y >= 40 && y < 100) || (x >= 40 && x < 100 && y >= 40 && y < 216));
-    const piece = tracePiece(img)!;
-    const body = createPieceBody(piece.polygons, { ...baseOpts, x: 0, y: 0 })!;
-    const meta = getPieceMeta(body)!;
-    expect(meta.ownerIndex).toBe(2);
-    expect(meta.color).toBe("#10B981");
-
-    const ob = polygonBounds(meta.outline.flat());
-    expect(ob.minX + body.position.x).toBeCloseTo(body.bounds.min.x, 0);
-    expect(ob.minY + body.position.y).toBeCloseTo(body.bounds.min.y, 0);
-    expect(ob.maxX + body.position.x).toBeCloseTo(body.bounds.max.x, 0);
-    expect(ob.maxY + body.position.y).toBeCloseTo(body.bounds.max.y, 0);
-
-    // キャンバス左上 (40,40) の角はスプライト原点 + offset から計算した位置に来る
-    const corner = {
-      x: body.position.x + meta.spriteOffset.x + (40 - 128) * 0.5,
-      y: body.position.y + meta.spriteOffset.y + (40 - 128) * 0.5,
-    };
-    expect(corner.x).toBeCloseTo(body.bounds.min.x, 0);
-    expect(corner.y).toBeCloseTo(body.bounds.min.y, 0);
-  });
-
-  it("複数成分は 1 つの compound body にまとまる", () => {
-    const img = blank();
-    paint(img, disc(60, 128, 40));
-    paint(img, disc(196, 128, 40));
-    const piece = tracePiece(img)!;
-    const body = createPieceBody(piece.polygons, { ...baseOpts, x: 0, y: 0 })!;
-    expect(body.parts.length).toBeGreaterThanOrEqual(3);
-    expect(getPieceMeta(body)!.outline).toHaveLength(2);
   });
 });

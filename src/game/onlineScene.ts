@@ -7,20 +7,22 @@
  * - それ以外の画面は届いた姿勢フレームへ補間して表示する
  * - TURN_RESULT で全員がサーバーの確定位置に揃う
  */
-import Matter from "matter-js";
 import { PIECE_SCALE, PLAYER_COLORS, REST_TIMEOUT_MS, SPAWN_CLEARANCE, WORLD } from "../../shared/constants";
 import type { PieceData, Pose } from "../../shared/protocol";
 import type { RoomClient } from "../net/roomClient";
 import type { RoomView } from "../net/roomStore";
-import { createPieceBody, type Vec2 } from "../utils/contourTracer";
+import type { Vec2 } from "../utils/contourTracer";
 import {
   addPiece,
   createPhysics,
+  createPieceBody,
+  discardPiece,
   findFallenPieces,
   removePiece,
   RestDetector,
   stepPhysics,
   towerTopY,
+  type GameBody,
   type PhysicsWorld,
 } from "./physics";
 import { bakePieceSprite, type RenderState, type SpriteRegistry } from "./renderer";
@@ -48,20 +50,13 @@ function lerpAngle(a: number, b: number, k: number): number {
   return a + d * k;
 }
 
-function setPose(body: Matter.Body, x: number, y: number, angle: number) {
-  Matter.Body.setPosition(body, { x, y });
-  Matter.Body.setAngle(body, angle);
-  Matter.Body.setVelocity(body, { x: 0, y: 0 });
-  Matter.Body.setAngularVelocity(body, 0);
-}
-
 export class OnlineScene implements Scene {
   readonly sprites: SpriteRegistry = new Map();
   debug = false;
 
   private readonly physics: PhysicsWorld = createPhysics();
   private readonly rest = new RestDetector();
-  private readonly bodies = new Map<string, Matter.Body>();
+  private readonly bodies = new Map<string, GameBody>();
   /** 最後に当てはめたサーバー確定位置（参照が変わったら当て直す） */
   private readonly appliedPose = new Map<string, PieceData["pose"]>();
   /** 他人の画面: 補間の目標 */
@@ -128,7 +123,7 @@ export class OnlineScene implements Scene {
       for (const piece of Object.values(view.pieces)) {
         if (!piece.pose || this.appliedPose.get(piece.id) === piece.pose) continue;
         const body = this.bodies.get(piece.id)!;
-        setPose(body, piece.pose.x, piece.pose.y, piece.pose.angle);
+        body.setPose(piece.pose.x, piece.pose.y, piece.pose.angle);
         this.appliedPose.set(piece.id, piece.pose);
         this.targets.delete(piece.id);
         if (!this.physics.pieces.includes(body)) addPiece(this.physics, body);
@@ -142,7 +137,7 @@ export class OnlineScene implements Scene {
       this.previewTarget = null;
       const body = pending ? this.bodies.get(pending) : undefined;
       if (body && room.phase === "placing") {
-        setPose(body, view.preview?.x ?? WORLD.islandX, body.position.y, view.preview?.angle ?? 0);
+        body.setPose(view.preview?.x ?? WORLD.islandX, body.position.y, view.preview?.angle ?? 0);
         this.placeAboveTower(body);
         if (this.isMyPlacement) this.hooks.onLocalPreview?.(body.position.x, body.angle);
       }
@@ -170,7 +165,7 @@ export class OnlineScene implements Scene {
 
   private create(piece: PieceData) {
     const color = PLAYER_COLORS[piece.ownerIndex]?.hex ?? "#ffffff";
-    const body = createPieceBody(piece.polygons, {
+    const body = createPieceBody(this.physics, piece.polygons, {
       x: WORLD.islandX,
       y: -10_000,
       scale: PIECE_SCALE,
@@ -212,7 +207,7 @@ export class OnlineScene implements Scene {
 
   private forget(id: string) {
     const body = this.bodies.get(id);
-    if (body && this.physics.pieces.includes(body)) removePiece(this.physics, body);
+    if (body) discardPiece(this.physics, body);
     this.bodies.delete(id);
     this.sprites.delete(id);
     this.appliedPose.delete(id);
@@ -220,24 +215,21 @@ export class OnlineScene implements Scene {
   }
 
   /** プレビュー下端がタワー最上部から SPAWN_CLEARANCE 上に来るよう y を合わせる（全員同じ盤面なので同じ高さになる） */
-  private placeAboveTower(body: Matter.Body) {
+  private placeAboveTower(body: GameBody) {
     const bottomOffset = body.bounds.max.y - body.position.y;
     const y = towerTopY(this.physics) - SPAWN_CLEARANCE - bottomOffset;
-    Matter.Body.setPosition(body, { x: body.position.x, y });
+    body.setPosition(body.position.x, y);
   }
 
   private startDrop(id: string, pose: { x: number; angle: number }, simulate: boolean) {
     const body = this.bodies.get(id);
     if (!body) return;
-    setPose(body, pose.x, body.position.y, pose.angle);
+    body.setPose(pose.x, body.position.y, pose.angle);
     this.placeAboveTower(body);
     if (!this.physics.pieces.includes(body)) addPiece(this.physics, body);
     this.simulating = simulate;
     if (simulate) {
-      for (const b of this.physics.pieces) {
-        Matter.Body.setVelocity(b, { x: 0, y: 0 });
-        Matter.Body.setAngularVelocity(b, 0);
-      }
+      for (const b of this.physics.pieces) b.stop();
       this.rest.reset();
       this.simElapsed = 0;
       this.fallen = [];
@@ -276,13 +268,13 @@ export class OnlineScene implements Scene {
   setPreviewX(x: number): void {
     const body = this.pendingId ? this.bodies.get(this.pendingId) : undefined;
     if (!body || !this.isMyPlacement) return;
-    Matter.Body.setPosition(body, { x: Math.max(WORLD.minX, Math.min(WORLD.maxX, x)), y: body.position.y });
+    body.setPosition(Math.max(WORLD.minX, Math.min(WORLD.maxX, x)), body.position.y);
   }
 
   rotatePreview(deg: number): void {
     const body = this.pendingId ? this.bodies.get(this.pendingId) : undefined;
     if (!body || !this.isMyPlacement) return;
-    Matter.Body.setAngle(body, body.angle + (deg * Math.PI) / 180);
+    body.setAngle(body.angle + (deg * Math.PI) / 180);
     this.placeAboveTower(body);
   }
 
@@ -314,21 +306,19 @@ export class OnlineScene implements Scene {
       for (const [id, t] of this.targets) {
         const body = this.bodies.get(id);
         if (!body) continue;
-        Matter.Body.setPosition(body, {
-          x: body.position.x + (t.x - body.position.x) * k,
-          y: body.position.y + (t.y - body.position.y) * k,
-        });
-        Matter.Body.setAngle(body, lerpAngle(body.angle, t.angle, k));
+        const p = body.position;
+        body.setTransform(p.x + (t.x - p.x) * k, p.y + (t.y - p.y) * k, lerpAngle(body.angle, t.angle, k));
       }
     }
 
     // 他人の配置プレビューを追従
     const body = this.pendingId ? this.bodies.get(this.pendingId) : undefined;
     if (body && this.previewTarget && this.view?.room?.phase === "placing") {
-      Matter.Body.setPosition(body, { x: body.position.x + (this.previewTarget.x - body.position.x) * k, y: body.position.y });
+      const p = body.position;
+      body.setPosition(p.x + (this.previewTarget.x - p.x) * k, p.y);
       const angle = lerpAngle(body.angle, this.previewTarget.angle, k);
       if (Math.abs(angle - body.angle) > 1e-4) {
-        Matter.Body.setAngle(body, angle);
+        body.setAngle(angle);
         this.placeAboveTower(body);
       }
     }

@@ -1,5 +1,5 @@
 /**
- * contourTracer — お絵描きキャンバス → 物理ポリゴン → Matter.js ボディ
+ * contourTracer — お絵描きキャンバス → 物理用の輪郭ポリゴン
  *
  * パイプライン:
  *   1. buildMask       アルファ値を二値化しつつ downsample（max-pooling なので細線も消えない）
@@ -9,15 +9,10 @@
  *   5. traceOutline    Marching Squares で各成分の外周を一周たどる
  *   6. simplifyToBudget RDP 法の epsilon を二分探索して頂点数を上限以下に間引く
  *   7. 単純多角形チェック → ダメなら epsilon を上げて再試行 → 最後は凸包にフォールバック
- *   8. createPieceBody poly-decomp で凹多角形を凸分解し、複数成分は compound body にまとめる
  *
- * 1〜7 は DOM 非依存の純関数（ImageData 互換の {width, height, data} を受け取る）なので
- * Node 上の vitest でそのままテストできる。
+ * すべて DOM 非依存の純関数（ImageData 互換の {width, height, data} を受け取る）なので
+ * Node 上の vitest でそのままテストできる。物理ボディ化は src/game/physics.ts の createPieceBody。
  */
-import Matter from "matter-js";
-import decomp from "poly-decomp";
-
-Matter.Common.setDecomp(decomp);
 
 export interface Vec2 {
   x: number;
@@ -555,98 +550,4 @@ export function tracePiece(img: ImageLike, options: TraceOptions = {}): TracedPi
     area: polygons.reduce((s, p) => s + Math.abs(polygonArea(p)), 0),
     bounds: polygonBounds(all),
   };
-}
-
-// ---------------------------------------------------------------------------
-// 公開 API: ポリゴン → Matter.js ボディ
-// ---------------------------------------------------------------------------
-
-/** body.plugin.piece に載せるメタ情報 */
-export interface PieceMeta {
-  ownerIndex: number;
-  color: string;
-  /** 描画用スプライトのキー（renderer 側のレジストリ参照） */
-  spriteKey: string;
-  /** ボディ座標系（position 原点・angle 0）でのキャンバス中心の位置 */
-  spriteOffset: Vec2;
-  /** キャンバス 1px あたりのワールド単位 */
-  spriteScale: number;
-  canvasSize: number;
-  /** ボディ座標系での輪郭ポリゴン（分解前の見た目どおりの形。アウトライン描画用） */
-  outline: Vec2[][];
-}
-
-export interface CreatePieceOptions {
-  x: number;
-  y: number;
-  /** キャンバス px → ワールド単位 */
-  scale: number;
-  ownerIndex: number;
-  color: string;
-  spriteKey: string;
-  canvasSize?: number;
-  bodyOptions?: Matter.IBodyDefinition;
-}
-
-const PIECE_BODY_DEFAULTS: Matter.IBodyDefinition = {
-  friction: 0.9,
-  frictionStatic: 1.2,
-  frictionAir: 0.01,
-  restitution: 0.02,
-  density: 0.0015,
-};
-
-export function getPieceMeta(body: Matter.Body): PieceMeta | undefined {
-  return (body.plugin as { piece?: PieceMeta } | undefined)?.piece;
-}
-
-/**
- * トレース済みポリゴンから Matter.js ボディを作る。
- * - 凹多角形は poly-decomp で凸分解（Bodies.fromVertices）
- * - 複数成分は 1 つの compound body にまとめる
- * - fromVertices は重心を原点に寄せるので、そのずれを spriteOffset として保存し
- *   renderer がスプライトと輪郭を正しい位置に描けるようにする
- */
-export function createPieceBody(polygons: Vec2[][], opts: CreatePieceOptions): Matter.Body | null {
-  const canvasSize = opts.canvasSize ?? 256;
-  const half = canvasSize / 2;
-  const s = opts.scale;
-
-  // キャンバス中心を原点としたワールドスケールの頂点
-  const local = polygons
-    .filter((p) => p.length >= 3)
-    .map((poly) => poly.map((p) => ({ x: (p.x - half) * s, y: (p.y - half) * s })));
-  if (local.length === 0) return null;
-  const localBounds = polygonBounds(local.flat());
-
-  const body = Matter.Bodies.fromVertices(
-    0,
-    0,
-    local.map((poly) => poly.map((p) => ({ ...p }))),
-    { ...PIECE_BODY_DEFAULTS, ...opts.bodyOptions },
-    false,
-    0.01,
-    4,
-  );
-  if (!body || !body.vertices || body.vertices.length < 3 || !Number.isFinite(body.mass) || body.mass <= 0) {
-    return null;
-  }
-
-  // 生成直後 (angle 0) は「元の頂点 + 平行移動」なので、bounds の差から移動量を復元できる
-  const shift = { x: body.bounds.min.x - localBounds.minX, y: body.bounds.min.y - localBounds.minY };
-  const spriteOffset = { x: shift.x - body.position.x, y: shift.y - body.position.y };
-
-  const meta: PieceMeta = {
-    ownerIndex: opts.ownerIndex,
-    color: opts.color,
-    spriteKey: opts.spriteKey,
-    spriteOffset,
-    spriteScale: s,
-    canvasSize,
-    outline: local.map((poly) => poly.map((p) => ({ x: p.x + spriteOffset.x, y: p.y + spriteOffset.y }))),
-  };
-  body.plugin = { ...(body.plugin ?? {}), piece: meta };
-  body.label = `piece:${opts.spriteKey}`;
-  Matter.Body.setPosition(body, { x: opts.x, y: opts.y });
-  return body;
 }

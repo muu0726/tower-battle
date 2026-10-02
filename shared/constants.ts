@@ -28,7 +28,7 @@ export const DRAW_CANVAS_SIZE = 256;
 /** 1 ピースあたりの物理ポリゴン頂点数の上限 */
 export const PIECE_MAX_VERTICES = 30;
 
-// ---- 物理ワールド (Matter.js の座標系。y は下向き) ----
+// ---- 物理ワールド（ゲーム座標: 1 単位 = 1px、y は下向き。Box2D のメートル単位への変換は src/game/physics.ts） ----
 export const WORLD = {
   width: 800,
   /** 浮島（土台）中心 */
@@ -51,8 +51,10 @@ export const SPAWN_CLEARANCE = 200;
 export const ROTATE_STEP_DEG = 15;
 
 // ---- 静止判定 ----
-export const REST_SPEED_THRESHOLD = 0.05;
-export const REST_ANGULAR_THRESHOLD = 0.002;
+/** 速さ（単位/s）。1 秒に 3px 未満なら止まっているとみなす */
+export const REST_SPEED_THRESHOLD = 3;
+/** 角速度（rad/s）。1 秒に約 7° 未満 */
+export const REST_ANGULAR_THRESHOLD = 0.12;
 /** 上記閾値を連続で下回る必要がある物理ステップ数 (60Hz で 0.5 秒) */
 export const REST_STEPS_REQUIRED = 30;
 /** 微振動が永遠に止まらないケースの保険。これを超えたら静止とみなす */

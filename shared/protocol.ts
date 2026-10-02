@@ -7,7 +7,7 @@ export interface Vec2 {
   y: number;
 }
 
-/** ワールド座標でのピースの位置・角度（position は Matter.js ボディの重心） */
+/** ワールド座標でのピースの位置・角度（x, y はボディの原点 = 描いたキャンバスの中心） */
 export interface Pose {
   id: string;
   x: number;

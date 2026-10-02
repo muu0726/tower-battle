@@ -20,9 +20,10 @@ import { DrawingPad, type SubmitReason } from "../components/DrawingPad";
 import { GameCanvas } from "../components/GameCanvas";
 import { PlacementControls } from "../components/PlacementControls";
 import { preparePiece } from "../game/piecePrep";
+import { createPieceBody } from "../game/physics";
 import { bakePieceSprite } from "../game/renderer";
 import { SandboxScene, type SandboxEvents, type SandboxPhase } from "../game/sandboxScene";
-import { createPieceBody, type TracedPiece } from "../utils/contourTracer";
+import type { TracedPiece } from "../utils/contourTracer";
 import { haptic } from "../utils/haptics";
 
 interface Toast {
@@ -162,7 +163,7 @@ export default function Sandbox() {
       const ms = performance.now() - t0;
 
       const spriteKey = `piece-${++spriteSeq}`;
-      const body = createPieceBody(piece.polygons, {
+      const body = createPieceBody(scene.physics, piece.polygons, {
         x: WORLD.width / 2,
         y: 0,
         scale: PIECE_SCALE,
@@ -180,7 +181,7 @@ export default function Sandbox() {
       setStats({
         polygons: piece.polygons.length,
         vertices: piece.vertexCount,
-        parts: body.parts.length > 1 ? body.parts.length - 1 : 1,
+        parts: body.parts.length,
         ms,
       });
     },

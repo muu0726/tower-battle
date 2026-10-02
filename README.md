@@ -69,7 +69,7 @@ npm run play
 | API / WebSocket | `worker/index.ts`（`/api/*` だけ Worker を先に通す） |
 | ルーム / ターン制御 | Durable Object `GameRoom`（合言葉 1 つにつき 1 インスタンス） |
 | 対戦ログ | D1 + Drizzle ORM（`matches`, `match_results`） |
-| 物理 | Matter.js + poly-decomp（手番プレイヤーのクライアントが権威） |
+| 物理 | planck.js（Box2D の JavaScript 版。本家と同じ Box2D 系）+ poly-decomp（手番プレイヤーのクライアントが権威） |
 | 公開 | Cloudflare Tunnel（Quick Tunnel、無料・アカウント不要） |
 
 `wrangler.toml` 1 枚に全バインディングを定義している。ローカルでは `@cloudflare/vite-plugin` が Worker / DO / D1 を workerd 上で動かす（Cloudflare 本番と同じランタイム）。
@@ -82,7 +82,8 @@ shared/sizeRule.ts         サイズ規定（抽選・判定・拡大倍率）
 worker/                    Worker 本体 / GameRoom DO / Drizzle スキーマ
 worker/room/engine.ts      部屋のゲーム進行（入室・ターン・脱落・勝敗）。I/O なしの純粋なロジック
 src/net/                   クライアント接続層（自動再接続・状態の組み立て・React フック）
-src/utils/contourTracer.ts キャンバス → 輪郭ポリゴン → Matter ボディ
+src/utils/contourTracer.ts キャンバス → 輪郭ポリゴン
+src/game/pieceShape.ts     輪郭ポリゴン → Box2D 用の凸パーツ（12 頂点以内）
 src/game/                  物理・カメラ・描画・対戦シーン（onlineScene）・Sandbox シーン
 src/components/            お絵描きパッド・配置操作・ゲームキャンバス・ロビー / 勝敗モーダルなど
 src/pages/                 トップ・対戦部屋・Sandbox
@@ -150,6 +151,18 @@ npm run dev                # http://localhost:5173
 - 締切を過ぎるとサーバーが代行する：お絵描き → 規定サイズのブロック、配置 → 最後の位置で自動 DROP、静止待ち → 最後に届いたフレームで確定
 - 切断しても再接続（同じタブなら自動）すれば続行。自分の手番が来た時点でまだ切断中なら脱落
 - 部屋の状態は DO ストレージに保存しているので、DO が休止しても続きから再開できる
+
+**物理エンジン（`src/game/physics.ts`）**
+
+本家どうぶつタワーバトル（Unity 製）と同じ Box2D 系の **planck.js** を使っている。着地したら弾まずに引っかかり、止まったタワーは勝手にじわじわ動かない。
+挙動は `src/game/physics.lab.test.ts`（物理ラボ）で数値を測って調整・回帰チェックしている。移行前（Matter.js）との比較：
+
+| 指標 | Matter.js（移行前） | planck.js（現在） |
+| --- | --- | --- |
+| 20° の斜面に置いた箱が 3 秒で滑る距離 | 17.5 | 0.27 |
+| 静止したタワーがその後 10 秒で動く距離（最大） | 15〜53 | 0.07 |
+| 6 段タワーが静止するまで（平均 / 最大） | 6.0 秒 / 12 秒 | 2.7 秒 / 4.8 秒 |
+| 落下の速さ（200 単位） | 0.63 秒 | 0.63 秒（同じ） |
 
 **物理の同期（`src/game/onlineScene.ts`）**
 

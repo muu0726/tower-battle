@@ -1,15 +1,16 @@
-import Matter from "matter-js";
 import { REST_TIMEOUT_MS, SPAWN_CLEARANCE, WORLD } from "../../shared/constants";
-import { getPieceMeta, type Vec2 } from "../utils/contourTracer";
+import type { Vec2 } from "../utils/contourTracer";
 import {
   addPiece,
   clearPieces,
   createPhysics,
+  discardPiece,
   findFallenPieces,
   removePiece,
   RestDetector,
   stepPhysics,
   towerTopY,
+  type GameBody,
   type PhysicsWorld,
 } from "./physics";
 import type { RenderState, SpriteRegistry } from "./renderer";
@@ -43,7 +44,7 @@ export class SandboxScene implements Scene {
   debug = false;
 
   private phase: SandboxPhase = "draw";
-  private preview: Matter.Body | null = null;
+  private preview: GameBody | null = null;
   private droppedBy = -1;
   private settleElapsed = 0;
   private drag: { startX: number; pieceX: number } | null = null;
@@ -59,10 +60,10 @@ export class SandboxScene implements Scene {
     this.events.onPhase(phase);
   }
 
-  /** トレース済みピースを画面上部に出す */
-  spawnPreview(body: Matter.Body): void {
+  /** トレース済みピース（このシーンの physics で createPieceBody したもの）を画面上部に出す */
+  spawnPreview(body: GameBody): void {
     this.preview = body;
-    Matter.Body.setPosition(body, { x: WORLD.width / 2, y: body.position.y });
+    body.setPosition(WORLD.width / 2, body.position.y);
     this.placePreviewAboveTower();
     this.events.onPreviewX(body.position.x);
     this.setPhase("place");
@@ -74,18 +75,18 @@ export class SandboxScene implements Scene {
     if (!body) return;
     const bottomOffset = body.bounds.max.y - body.position.y;
     const y = towerTopY(this.physics) - SPAWN_CLEARANCE - bottomOffset;
-    Matter.Body.setPosition(body, { x: body.position.x, y });
+    body.setPosition(body.position.x, y);
   }
 
   setPreviewX(x: number): void {
     if (!this.preview || this.phase !== "place") return;
     const clamped = Math.max(WORLD.minX, Math.min(WORLD.maxX, x));
-    Matter.Body.setPosition(this.preview, { x: clamped, y: this.preview.position.y });
+    this.preview.setPosition(clamped, this.preview.position.y);
   }
 
   rotatePreview(deg: number): void {
     if (!this.preview || this.phase !== "place") return;
-    Matter.Body.setAngle(this.preview, this.preview.angle + (deg * Math.PI) / 180);
+    this.preview.setAngle(this.preview.angle + (deg * Math.PI) / 180);
     this.placePreviewAboveTower();
   }
 
@@ -93,7 +94,7 @@ export class SandboxScene implements Scene {
     const body = this.preview;
     if (!body || this.phase !== "place") return;
     this.preview = null;
-    this.droppedBy = getPieceMeta(body)?.ownerIndex ?? -1;
+    this.droppedBy = body.meta?.ownerIndex ?? -1;
     addPiece(this.physics, body);
     this.rest.reset();
     this.settleElapsed = 0;
@@ -102,6 +103,7 @@ export class SandboxScene implements Scene {
 
   reset(): void {
     clearPieces(this.physics);
+    if (this.preview) discardPiece(this.physics, this.preview);
     this.preview = null;
     this.sprites.clear();
     this.rest.reset();
@@ -113,7 +115,7 @@ export class SandboxScene implements Scene {
 
     for (const body of findFallenPieces(this.physics)) {
       removePiece(this.physics, body);
-      const ownerIndex = getPieceMeta(body)?.ownerIndex ?? -1;
+      const ownerIndex = body.meta?.ownerIndex ?? -1;
       this.events.onFall({ ownerIndex, blamedIndex: this.phase === "settling" ? this.droppedBy : ownerIndex });
     }
 

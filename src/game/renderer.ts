@@ -1,7 +1,7 @@
-import type Matter from "matter-js";
 import { WORLD } from "../../shared/constants";
-import { getPieceMeta, type Vec2 } from "../utils/contourTracer";
+import type { Vec2 } from "../utils/contourTracer";
 import { applyCamera, visibleWorldRect, type Camera, type Viewport } from "./camera";
+import type { GameBody } from "./physics";
 
 /** spriteKey → 焼き込み済みスプライト（キャンバス + 四辺に SPRITE_PAD の余白） */
 export type SpriteRegistry = Map<string, HTMLCanvasElement>;
@@ -10,10 +10,10 @@ export type SpriteRegistry = Map<string, HTMLCanvasElement>;
 const SPRITE_PAD = 28;
 
 export interface RenderState {
-  pieces: readonly Matter.Body[];
-  island: Matter.Body;
-  /** 配置中のピース（物理ワールド外） */
-  preview: Matter.Body | null;
+  pieces: readonly GameBody[];
+  island: GameBody;
+  /** 配置中のピース（物理に未参加） */
+  preview: GameBody | null;
   debug: boolean;
 }
 
@@ -121,7 +121,7 @@ function drawAbyss(ctx: CanvasRenderingContext2D, rect: ReturnType<typeof visibl
   ctx.restore();
 }
 
-function drawIsland(ctx: CanvasRenderingContext2D, island: Matter.Body) {
+function drawIsland(ctx: CanvasRenderingContext2D, island: GameBody) {
   const { min, max } = island.bounds;
   const w = max.x - min.x;
   // 見た目だけの岩肌（物理は上面の細い矩形のみ）
@@ -137,32 +137,33 @@ function drawIsland(ctx: CanvasRenderingContext2D, island: Matter.Body) {
   // 地面と草
   ctx.fillStyle = "#78350f";
   ctx.beginPath();
-  tracePath(ctx, island.vertices);
+  for (const part of island.worldParts()) tracePath(ctx, part);
   ctx.fill();
   ctx.fillStyle = "#4ade80";
   ctx.fillRect(min.x + 4, min.y, w - 8, 7);
 }
 
-function drawPiece(ctx: CanvasRenderingContext2D, body: Matter.Body, sprites: SpriteRegistry, alpha: number) {
-  const meta = getPieceMeta(body);
+function drawPiece(ctx: CanvasRenderingContext2D, body: GameBody, sprites: SpriteRegistry, alpha: number) {
+  const meta = body.meta;
   const sprite = meta && sprites.get(meta.spriteKey);
   if (!meta || !sprite) return;
-  // 輪郭・光彩は bakePieceSprite で焼き込み済みなので drawImage 1 回だけ
-  const pad = (sprite.width - meta.canvasSize) / 2;
-  const half = (meta.canvasSize / 2 + pad) * meta.spriteScale;
+  // 輪郭・光彩は bakePieceSprite で焼き込み済みなので drawImage 1 回だけ。ボディの原点 = キャンバス中心
+  const half = (sprite.width / 2) * meta.spriteScale;
   const size = sprite.width * meta.spriteScale;
+  const { x, y } = body.position;
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.translate(body.position.x, body.position.y);
+  ctx.translate(x, y);
   ctx.rotate(body.angle);
-  ctx.drawImage(sprite, meta.spriteOffset.x - half, meta.spriteOffset.y - half, size, size);
+  ctx.drawImage(sprite, -half, -half, size, size);
   ctx.restore();
 }
 
-function drawDropGuide(ctx: CanvasRenderingContext2D, preview: Matter.Body, zoom: number) {
-  const meta = getPieceMeta(preview);
+function drawDropGuide(ctx: CanvasRenderingContext2D, preview: GameBody, zoom: number) {
+  const meta = preview.meta;
   if (!meta) return;
   const { min, max } = preview.bounds;
+  const center = preview.position;
   ctx.save();
   ctx.globalAlpha = 0.1;
   ctx.fillStyle = meta.color;
@@ -172,31 +173,35 @@ function drawDropGuide(ctx: CanvasRenderingContext2D, preview: Matter.Body, zoom
   ctx.lineWidth = 2 / zoom;
   ctx.setLineDash([10 / zoom, 8 / zoom]);
   ctx.beginPath();
-  ctx.moveTo(preview.position.x, max.y);
-  ctx.lineTo(preview.position.x, WORLD.deathY);
+  ctx.moveTo(center.x, max.y);
+  ctx.lineTo(center.x, WORLD.deathY);
   ctx.stroke();
   ctx.restore();
 }
 
-function drawDebug(ctx: CanvasRenderingContext2D, body: Matter.Body, zoom: number) {
-  const parts = body.parts.length > 1 ? body.parts.slice(1) : [body];
+/** 凸パーツの輪郭と頂点（黄）、ボディ原点（ピンク）、重心（水色） */
+function drawDebug(ctx: CanvasRenderingContext2D, body: GameBody, zoom: number) {
   ctx.save();
   ctx.lineWidth = 1 / zoom;
   ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
   ctx.fillStyle = "#fde047";
-  for (const part of parts) {
+  for (const part of body.worldParts()) {
     ctx.beginPath();
-    tracePath(ctx, part.vertices);
+    tracePath(ctx, part);
     ctx.stroke();
-    for (const v of part.vertices) {
+    for (const v of part) {
       ctx.beginPath();
       ctx.arc(v.x, v.y, 2.5 / zoom, 0, Math.PI * 2);
       ctx.fill();
     }
   }
-  ctx.fillStyle = "#f472b6";
-  ctx.beginPath();
-  ctx.arc(body.position.x, body.position.y, 4 / zoom, 0, Math.PI * 2);
-  ctx.fill();
+  const dot = (p: Vec2, color: string) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4 / zoom, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  dot(body.position, "#f472b6");
+  dot(body.centerOfMass, "#38bdf8");
   ctx.restore();
 }
