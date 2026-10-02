@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html,
+body {
+  /* 引っ張り更新・バウンススクロールを防ぐ */
+  overscroll-behavior: none;
+}
+
+body {
+  margin: 0;
+  background-color: #020617;
+  color: #f1f5f9;
+  font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* ダブルタップズーム・長押しメニュー・テキスト選択を防ぐ（ゲーム操作の誤爆対策） */
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}

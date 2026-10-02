@@ -1,0 +1,42 @@
+# お絵描きタワーバトル — Cloudflare Workers + Static Assets 構成
+# 1 つの Worker が以下をすべて担当する（同一オリジンなので CORS 不要）
+#   - Vite ビルド済みフロントエンド (Static Assets)
+#   - /api/* の HTTP / WebSocket エンドポイント
+#   - Durable Object (GameRoom): 合言葉ルーム・WebSocket ハブ・ターン制御
+#   - D1: 対戦結果ログ
+#
+# ローカル開発は `npm run dev`（@cloudflare/vite-plugin が workerd 上で Worker/DO/D1 を起動）。
+# assets.directory は Vite プラグインがビルド時に自動設定するため記述しない。
+
+name = "tower-battle"
+main = "worker/index.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+[assets]
+# React SPA なので未知のパスは index.html にフォールバック
+not_found_handling = "single-page-application"
+# /api/* だけはアセットより先に Worker を通す
+run_worker_first = ["/api/*"]
+
+# ---- Durable Objects --------------------------------------------------------
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "GameRoom"
+
+# DO クラスの追加・改名・削除はここにタグを積み増していく
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameRoom"]
+
+# ---- D1 ---------------------------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "tower-battle-db"
+# 本番 D1 の ID（ローカル開発では使われない）
+database_id = "c242d209-b130-4ccd-9e5a-3bdf3405dbcc"
+# drizzle-kit generate の出力先と一致させる
+migrations_dir = "drizzle/migrations"
