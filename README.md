@@ -228,6 +228,8 @@ npm run deploy                            # vite build → wrangler deploy
 
 以降は main ブランチに push するたびに自動でビルド・デプロイされる。
 
+> このリポジトリ（[muu0726/tower-battle](https://github.com/muu0726/tower-battle)）は接続済み。main に push すると Workers Builds が自動でビルドして https://tower-battle.u-muta180726.workers.dev に反映する。ビルドの結果は GitHub のコミット横のチェックマークか、Cloudflare ダッシュボードの tower-battle → Deployments で確認できる。
+
 - ダッシュボードの Worker 名と `wrangler.toml` の `name`（`tower-battle`）が一致していないとビルドが失敗する
 - ビルド環境の Node.js バージョンは `.node-version`（`24`）で指定している
 - Free プランのビルド枠は月 3,000 分・同時 1 本・1 回 20 分まで
